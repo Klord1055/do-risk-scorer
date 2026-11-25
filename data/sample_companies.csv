@@ -1,0 +1,13 @@
+name,sector,market_cap_m,revenue_m,volatility,drawdown,debt_to_equity,years_public,spac,major_ma,restatement,prior_claims
+Northwind Robotics,Technology,4200,610,0.62,0.41,0.30,2,False,True,False,0
+Harbor Biosciences,Biotech / Pharma,1800,95,0.78,0.55,0.10,1.5,False,False,False,1
+Granite Freight Co,Industrials,6500,4800,0.28,0.12,1.40,22,False,False,False,0
+Bluepeak Energy,Energy,9100,7300,0.38,0.18,0.95,15,False,True,False,0
+Cedar Lane Bank,Financials,3300,720,0.30,0.22,2.40,30,False,False,False,0
+Lumen Path Health,Healthcare Services,2600,3100,0.44,0.36,1.10,4,False,True,True,0
+Orchard Home Brands,Consumer,1200,1450,0.36,0.27,0.70,9,False,False,False,0
+Vantage Mobility,Technology,850,40,0.85,0.63,0.20,0.8,True,False,False,0
+Summit Utilities,Utilities,14000,5200,0.17,0.05,1.60,40,False,False,False,0
+Parkline REIT,Real Estate,5400,610,0.25,0.15,1.90,18,False,False,False,0
+Ridgeway Software,Technology,22000,3900,0.40,0.20,0.25,11,False,True,False,1
+Tidewater Pharma,Biotech / Pharma,7800,2100,0.47,0.31,0.65,8,False,False,True,0
