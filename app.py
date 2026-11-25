@@ -107,15 +107,15 @@ st.markdown(
     f"{freq / SECTOR_BASE_FREQ[sector]:.1f}x the {sector.lower()} average. A <b>${tower.total_limit:,.0f}M</b> tower runs out in "
     f"<b>{exhaust:.1%}</b> of simulated years.</div></div>", unsafe_allow_html=True)
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Claim probability this year", f"{freq:.1%}")
-m2.metric("Tower limit" + (" (recommended)" if not ts["total"] else " (your choice)"),
-          f"${tower.total_limit:,.0f}M over ${tower.retention:g}M",
+m1.metric("Claim odds this year", f"{freq:.1%}")
+m2.metric("Tower limit", f"${tower.total_limit:,.0f}M",
           help="Total limit across primary and excess layers, above the company's retention (deductible). "
                "The recommendation covers a 1 in 100 year loss and is never below the size benchmark.")
-m3.metric("Size benchmark for this company", f"${bench_total:,.0f}M",
+note(m2, f"Over a ${tower.retention:g}M retention, {'recommended' if not ts['total'] else 'your choice'}.")
+m3.metric("Size benchmark", f"${bench_total:,.0f}M",
           help="A rule of thumb limit from market cap and risk score, the way peers of this size are often insured.")
 note(m3, f"The 1 in 100 year loss needs <b>${need100:,.0f}M</b> above the retention.")
-m4.metric("Indicated program premium", f"${premium:,.2f}M", help="Risk based: expected loss divided by the target loss ratio, with a minimum rate on line.")
+m4.metric("Program premium", f"${premium:,.2f}M", help="Risk based: expected loss divided by the target loss ratio, with a minimum rate on line.")
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     ["Risk drivers", "How to lower the risk", "Losses and tower", "Quote benchmark", "Portfolio screen", "Methodology"])
