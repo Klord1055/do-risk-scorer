@@ -14,9 +14,10 @@ No client or WTW data is used. Every sample company is fictional and every prici
 
 | Tab | Output |
 |---|---|
-| Risk score | 0 to 100 exposure score, tier, claim probability, and a breakdown of which factors drive it |
-| Loss model and tower | Monte Carlo loss distribution, 1 in 100 and 1 in 250 year losses, recommended tower with hit probability and expected loss per layer |
-| Quote benchmark | Editable carrier quotes compared layer by layer to the indicated premium, with push back and best value flags |
+| Risk drivers | 0 to 100 exposure score, tier, claim probability, and a breakdown of which factors drive it |
+| How to lower the risk | Each controllable red flag fixed one at a time, ranked by how much it lowers the score and claim odds |
+| Losses and tower | Monte Carlo loss distribution, 1 in 100 and 1 in 250 year losses, a tower sized to cover the 1 in 100 year loss, chance the tower runs out, risk based price per layer |
+| Quote benchmark | Editable carrier quotes compared layer by layer to the indicated premium, with push back and best value flags, plus a CSV download |
 | Portfolio screen | Upload a CSV to rank a whole book of companies, then download the results |
 | Methodology | How every number is calculated |
 
