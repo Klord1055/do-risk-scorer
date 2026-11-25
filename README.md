@@ -2,7 +2,7 @@
 
 A Python and Streamlit app that scores a public company's directors and officers (D&O) liability exposure, simulates annual losses with Monte Carlo, designs a layered insurance tower, and benchmarks carrier quotes against a modeled price.
 
-**Live demo:** _add your Streamlit link here_
+**Live demo:** https://klord-do-risk-scorer.streamlit.app
 
 ## Why I built it
 
