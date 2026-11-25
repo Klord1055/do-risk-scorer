@@ -119,6 +119,9 @@ def simulate_losses(c: Company, score: float, n: int = 50_000, seed: int = 7) ->
     """Annual aggregate D&O loss (defense plus settlement), USD millions, via Monte Carlo."""
     rng = np.random.default_rng(seed)
     p = claim_frequency(c, score)
+    # Calibrate the first claim chance so the chance of at least one claim (first or a rarer second) equals p:
+    # 1 - (1 - p1)(1 - 0.15 p1) = p  ->  0.15 p1^2 - 1.15 p1 + p = 0
+    p = (1.15 - np.sqrt(1.15 ** 2 - 4 * 0.15 * p)) / (2 * 0.15)
     mu, sigma = severity_params(c)
     claims = rng.binomial(1, p, n) + rng.binomial(1, p * 0.15, n)  # rare second claim
     losses = np.zeros(n)
@@ -162,8 +165,9 @@ def recommend_retention(c: Company) -> float:
     return 25.0
 
 
-def build_tower(c: Company, score: float, layer_size: float = 10.0, side_a_limit: float = 10.0) -> Tower:
-    total = recommend_limit(c, score)
+def build_tower(c: Company, score: float, layer_size: float = 10.0, side_a_limit: float = 10.0,
+                total: float | None = None) -> Tower:
+    total = recommend_limit(c, score) if total is None else float(total)
     retention = recommend_retention(c)
     layers, att, i = [], retention, 0
     while att - retention < total - 1e-9:
@@ -176,25 +180,23 @@ def build_tower(c: Company, score: float, layer_size: float = 10.0, side_a_limit
     return Tower(retention, layers)
 
 
-def layer_metrics(tower: Tower, losses: np.ndarray, primary_rol: float, ilf_decay: float, side_a_rol: float) -> pd.DataFrame:
-    """Expected loss, attachment probability, and indicated premium for each layer.
+def layer_metrics(tower: Tower, losses: np.ndarray, target_loss_ratio: float = 0.60,
+                  min_rol: float = 0.01) -> pd.DataFrame:
+    """Expected loss, attachment probability, and risk based indicated premium for each layer.
 
-    Premium uses a rate on line that decays by `ilf_decay` per layer moving up the tower,
-    the way excess pricing falls with attachment.
+    Premium = expected loss / target loss ratio, with a minimum rate on line so remote excess
+    layers still carry a market minimum. Riskier companies therefore pay more for the same layer.
     """
     rows = []
-    rol = primary_rol
-    for i, l in enumerate(tower.layers):
+    for l in tower.layers:
         if l.side_a:
             # Side A responds when the company cannot indemnify; modeled as 15% of losses above the ABC tower.
             excess = np.clip(losses - l.attachment, 0, l.limit) * 0.15
-            layer_rol = side_a_rol
         else:
             excess = np.clip(losses - l.attachment, 0, l.limit)
-            layer_rol = rol
-            rol *= ilf_decay
         el = float(excess.mean())
-        premium = layer_rol * l.limit
+        premium = max(el / target_loss_ratio, min_rol * l.limit)
+        layer_rol = premium / l.limit
         rows.append({
             "Layer": l.name,
             "Attaches at ($M)": l.attachment,
@@ -209,35 +211,122 @@ def layer_metrics(tower: Tower, losses: np.ndarray, primary_rol: float, ilf_deca
 
 
 def benchmark_quotes(quotes: pd.DataFrame, indicated: pd.DataFrame) -> pd.DataFrame:
-    """Compare carrier quotes to the model's indicated premium for the same layer."""
+    """Compare carrier quotes to the model's indicated premium for the same layer.
+    15% or more above indication: push back. 5% or more below: best value."""
     m = quotes.merge(indicated[["Layer", "Indicated premium ($M)", "Expected loss ($M)"]], on="Layer", how="left")
-    m["Quote vs indicated"] = m["Quoted premium ($M)"] / m["Indicated premium ($M)"] - 1
-    m["Quote loss ratio"] = m["Expected loss ($M)"] / m["Quoted premium ($M)"]
-    m["Verdict"] = np.where(m["Quote vs indicated"] <= -0.05, "Below indication, best value",
-                    np.where(m["Quote vs indicated"] >= 0.15, "Above indication, push back", "In line"))
+    q = pd.to_numeric(m["Quoted premium ($M)"], errors="coerce")
+    m["Quote vs indicated"] = q / m["Indicated premium ($M)"] - 1
+    m["Quote loss ratio"] = m["Expected loss ($M)"] / q
+    m["Verdict"] = np.select(
+        [m["Indicated premium ($M)"].isna(), q.isna() | (q <= 0), m["Quote vs indicated"] <= -0.05, m["Quote vs indicated"] >= 0.15],
+        ["No matching layer", "Check quote", "Below indication, best value", "Above indication, push back"], "In line")
     return m
 
 
+def best_quotes(bench: pd.DataFrame) -> pd.DataFrame:
+    """Lowest valid quote per layer, so a layer quoted by several carriers is counted once."""
+    ok = bench[~bench["Verdict"].isin(["No matching layer", "Check quote"])]
+    return ok.loc[ok.groupby("Layer")["Quoted premium ($M)"].idxmin()] if len(ok) else ok
+
+
+_TRUE, _FALSE = {"true", "yes", "y", "1", "1.0", "t"}, {"false", "no", "n", "0", "0.0", "f", ""}
+
+
+def _flag(v, col: str) -> bool:
+    if isinstance(v, (bool, np.bool_)):
+        return bool(v)
+    t = "" if pd.isna(v) else str(v).strip().lower()
+    if t in _TRUE:
+        return True
+    if t in _FALSE:
+        return False
+    raise ValueError(f"{col} should be yes or no, got {v!r}")
+
+
+def _num(v, col: str, lo: float = 0.0) -> float:
+    x = float(v)
+    if not np.isfinite(x) or x < lo:
+        raise ValueError(f"{col} should be a number of at least {lo:g}, got {v!r}")
+    return x
+
+
 def company_from_row(r: pd.Series) -> Company:
+    """Build a Company from a CSV row, rejecting blanks, text in number columns and impossible values."""
     return Company(
-        name=str(r["name"]), sector=str(r["sector"]), market_cap_m=float(r["market_cap_m"]),
-        revenue_m=float(r["revenue_m"]), volatility=float(r["volatility"]), drawdown=float(r["drawdown"]),
-        debt_to_equity=float(r["debt_to_equity"]), years_public=float(r["years_public"]),
-        spac=bool(r["spac"]), major_ma=bool(r["major_ma"]), restatement=bool(r["restatement"]),
-        prior_claims=int(r["prior_claims"]),
+        name=str(r["name"]), sector=str(r["sector"]), market_cap_m=_num(r["market_cap_m"], "market_cap_m", 1.0),
+        revenue_m=_num(r["revenue_m"], "revenue_m"), volatility=_num(r["volatility"], "volatility"),
+        drawdown=_num(r["drawdown"], "drawdown"), debt_to_equity=_num(r["debt_to_equity"], "debt_to_equity"),
+        years_public=_num(r["years_public"], "years_public"),
+        spac=_flag(r["spac"], "spac"), major_ma=_flag(r["major_ma"], "major_ma"),
+        restatement=_flag(r["restatement"], "restatement"), prior_claims=int(_num(r["prior_claims"], "prior_claims")),
     )
 
 
+PORTFOLIO_COLUMNS = ["Company", "Sector", "Market cap ($M)", "Risk score", "Tier", "Claim probability",
+                     "Benchmark limit ($M)", "Retention ($M)"]
+
+
 def score_portfolio(df: pd.DataFrame, weights: dict[str, float] | None = None) -> pd.DataFrame:
-    out = []
-    for _, r in df.iterrows():
-        c = company_from_row(r)
+    """Score every valid row. Rows that cannot be read are skipped and listed in .attrs["skipped"]."""
+    out, skipped = [], []
+    for i, r in df.iterrows():
+        try:
+            c = company_from_row(r)
+        except (ValueError, TypeError, OverflowError, KeyError) as e:
+            skipped.append(f"row {i + 2} ({r.get('name', '?')}): {e}")
+            continue
         s, _ = risk_score(c, weights)
+        s = round(s, 1)
         out.append({
             "Company": c.name, "Sector": c.sector, "Market cap ($M)": c.market_cap_m,
-            "Risk score": round(s, 1), "Tier": risk_tier(s),
+            "Risk score": s, "Tier": risk_tier(s),
             "Claim probability": claim_frequency(c, s),
-            "Recommended limit ($M)": recommend_limit(c, s),
+            "Benchmark limit ($M)": recommend_limit(c, s),
             "Retention ($M)": recommend_retention(c),
         })
-    return pd.DataFrame(out).sort_values("Risk score", ascending=False).reset_index(drop=True)
+    res = pd.DataFrame(out, columns=PORTFOLIO_COLUMNS).sort_values("Risk score", ascending=False).reset_index(drop=True)
+    res.attrs["skipped"] = skipped
+    return res
+
+
+def improvement_paths(c: Company, weights: dict[str, float] | None = None) -> pd.DataFrame:
+    """What a company could change to lower its score, one fix at a time, ranked by points saved.
+    Only factors management can influence are tested."""
+    from dataclasses import replace as _r
+    base, _ = risk_score(c, weights)
+    fixes = []
+    if c.restatement:
+        fixes.append(("Close out the restatement or SEC inquiry", _r(c, restatement=False)))
+    if c.debt_to_equity > 1.0:
+        fixes.append(("Cut debt to 1.0x equity", _r(c, debt_to_equity=1.0)))
+    if c.drawdown > 0.15:
+        fixes.append(("Stock recovers to within 15% of its high", _r(c, drawdown=0.15)))
+    if c.volatility > 0.35:
+        fixes.append(("Volatility falls to 35%", _r(c, volatility=0.35)))
+    if c.major_ma:
+        fixes.append(("Finish integrating the recent deal (no major M&A)", _r(c, major_ma=False)))
+    rows = []
+    for label, alt in fixes:
+        s, _ = risk_score(alt, weights)
+        rows.append(dict(Change=label, **{"New score": s, "Points saved": base - s,
+                                          "New tier": risk_tier(s), "New claim probability": claim_frequency(alt, s)}))
+    df = pd.DataFrame(rows, columns=["Change", "New score", "Points saved", "New tier", "New claim probability"])
+    return df.sort_values("Points saved", ascending=False).reset_index(drop=True)
+
+
+def recommended_tower_limit(c: Company, score: float, losses: np.ndarray, return_period: float = 100) -> float:
+    """Tower limit that covers a 1 in N year loss, and never less than the size benchmark. Capped at $500M."""
+    need = limit_needed(losses, recommend_retention(c), return_period)
+    return float(min(500.0, max(recommend_limit(c, score), need)))
+
+
+def limit_needed(losses: np.ndarray, retention: float, return_period: float) -> float:
+    """Tower limit needed above the retention so a 1 in N year loss is fully covered, rounded up to $5M."""
+    q = float(np.percentile(losses, 100 * (1 - 1 / return_period)))
+    need = max(0.0, q - retention)
+    return float(5 * np.ceil(need / 5))
+
+
+def exhaustion_probability(losses: np.ndarray, tower: "Tower") -> float:
+    """Chance a year's loss blows through the retention plus every ABC layer."""
+    return float((losses > tower.retention + tower.total_limit).mean())
