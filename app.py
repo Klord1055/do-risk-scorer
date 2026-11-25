@@ -13,6 +13,9 @@ from risk.model import (DEFAULT_WEIGHTS, SECTOR_BASE_FREQ, Company, benchmark_qu
                         claim_frequency, company_from_row, exhaustion_probability, improvement_paths,
                         layer_metrics, limit_needed, recommend_limit, recommend_retention,
                         recommended_tower_limit, risk_score, risk_tier, score_portfolio, simulate_losses)
+import importlib
+import ui
+importlib.reload(ui)  # pick up ui.py changes on hot redeploy
 from ui import intro, note, GOLD, GREEN, NAVY, RED, setup, takeaway, wrap
 
 st.set_page_config(page_title="D&O Program Risk Scorer", page_icon="🛡️", layout="wide")
