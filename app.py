@@ -13,7 +13,7 @@ from risk.model import (DEFAULT_WEIGHTS, SECTOR_BASE_FREQ, Company, benchmark_qu
                         claim_frequency, company_from_row, exhaustion_probability, improvement_paths,
                         layer_metrics, limit_needed, recommend_limit, recommend_retention,
                         recommended_tower_limit, risk_score, risk_tier, score_portfolio, simulate_losses)
-from ui import intro, note, GOLD, GREEN, NAVY, RED, setup, takeaway
+from ui import intro, note, GOLD, GREEN, NAVY, RED, setup, takeaway, wrap
 
 st.set_page_config(page_title="D&O Program Risk Scorer", page_icon="🛡️", layout="wide")
 setup()
@@ -147,7 +147,10 @@ with tab2:
         pf = px.bar(paths.iloc[::-1], x="Points saved", y="Change", orientation="h", color_discrete_sequence=[GREEN],
                     text=paths.iloc[::-1]["New tier"], labels={"Change": ""})
         pf.update_traces(textposition="outside", textfont=dict(size=14))
-        pf.update_layout(height=80 + 55 * len(paths), margin=dict(t=10, b=10))
+        pf.update_traces(cliponaxis=False)
+        pf.update_layout(height=100 + 65 * len(paths), margin=dict(t=10, b=10, r=20),
+                         xaxis_range=[0, max(float(paths["Points saved"].max()), 1.0) * 1.35])
+        pf.update_yaxes(tickvals=list(paths["Change"]), ticktext=[wrap(m, 24) for m in paths["Change"]])
         st.plotly_chart(pf, width=W, theme=None)
         best = paths.iloc[0]
         if best["Points saved"] < 0.5:
@@ -196,10 +199,12 @@ with tab3:
         sa = r["Layer"].startswith("Side A")
         fig.add_trace(go.Bar(x=[r["Limit ($M)"]], y=[r["Layer"]], base=[r["Attaches at ($M)"]], orientation="h",
                              marker_color="#6B4FA8" if sa else NAVY, showlegend=False,
-                             text=f"${r['Limit ($M)']:.0f}M xs ${r['Attaches at ($M)']:.1f}M · hit {r['Prob. layer is hit']:.1%}",
-                             textposition="inside", insidetextanchor="middle", textfont=dict(color="#FFFFFF", size=14)))
-    fig.add_vline(x=tower.retention, line_dash="dot", line_width=2, annotation_text=f"Retention ${tower.retention:g}M")
-    fig.update_layout(height=80 + 42 * len(metrics), margin=dict(t=40, b=10), xaxis_title="$ millions",
+                             text=f"${r['Limit ($M)']:.0f}M xs ${r['Attaches at ($M)']:.1f}M<br>hit {r['Prob. layer is hit']:.1%}",
+                             textposition="outside", cliponaxis=False, textfont=dict(color="#111111", size=13)))
+    fig.add_vline(x=tower.retention, line_dash="dot", line_width=2, annotation_text=f"Retention ${tower.retention:g}M",
+                  annotation_position="top right", annotation_yshift=18)
+    fig.update_layout(height=80 + 50 * len(metrics), margin=dict(t=70, b=10), xaxis_title="$ millions",
+                      xaxis_range=[0, float((metrics["Attaches at ($M)"] + metrics["Limit ($M)"]).max()) * 1.5],
                       title=f"${tower.total_limit:,.0f}M tower over a ${tower.retention:g}M retention")
     st.plotly_chart(fig, width=W, theme=None)
     st.dataframe(metrics.style.format({
